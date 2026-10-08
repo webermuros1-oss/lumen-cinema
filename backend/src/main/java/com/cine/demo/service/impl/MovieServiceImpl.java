@@ -1,0 +1,126 @@
+package com.cine.demo.service.impl;
+
+import com.cine.demo.dto.request.MovieRequestDTO;
+import com.cine.demo.dto.response.MovieResponseDTO;
+import com.cine.demo.model.Movie;
+import com.cine.demo.repository.MovieRepository;
+import com.cine.demo.service.MovieService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class MovieServiceImpl implements MovieService {
+
+    private final MovieRepository movieRepository;
+
+    @Override
+    public List<MovieResponseDTO> findAll() {
+        return movieRepository.findAll().stream()
+                .map(this::toDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<MovieResponseDTO> findActive() {
+        return movieRepository.findByActiveTrue().stream()
+                .map(this::toDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public MovieResponseDTO findById(Long id) {
+        Movie movie = movieRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Movie not found"));
+        return toDTO(movie);
+    }
+
+    @Override
+    public MovieResponseDTO save(MovieRequestDTO dto, MultipartFile image) {
+        String url = null;
+        if (image != null && !image.isEmpty()) {
+            url = saveImage(image);
+        } else if (dto.imageUrl() != null && !dto.imageUrl().isBlank()) {
+            url = dto.imageUrl();
+        }
+        Movie movie = Movie.builder()
+                .title(dto.title())
+                .description(dto.description())
+                .genre(dto.genre())
+                .durationMin(dto.durationMin())
+                .ageRating(dto.ageRating())
+                .language(dto.language())
+                .schedule(dto.schedule())
+                .posterUrl(url)
+                .format(dto.format() != null ? dto.format() : "2D")
+                .build();
+        movie = movieRepository.save(movie);
+        return toDTO(movie);
+    }
+
+    @Override
+    public MovieResponseDTO update(Long id, MovieRequestDTO dto) {
+        Movie movie = movieRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Movie not found"));
+        movie.setTitle(dto.title());
+        movie.setDescription(dto.description());
+        movie.setGenre(dto.genre());
+        movie.setDurationMin(dto.durationMin());
+        movie.setAgeRating(dto.ageRating());
+        movie.setLanguage(dto.language());
+        movie.setSchedule(dto.schedule());
+        if (dto.format() != null) movie.setFormat(dto.format());
+        if (dto.imageUrl() != null) movie.setPosterUrl(dto.imageUrl());
+        movie = movieRepository.save(movie);
+        return toDTO(movie);
+    }
+
+    @Override
+    public void delete(Long id) {
+        Movie movie = movieRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Movie not found"));
+        movie.setActive(false);
+        movieRepository.save(movie);
+    }
+
+    private MovieResponseDTO toDTO(Movie movie) {
+        return MovieResponseDTO.builder()
+                .id(movie.getId())
+                .title(movie.getTitle())
+                .description(movie.getDescription())
+                .genre(movie.getGenre())
+                .durationMin(movie.getDurationMin())
+                .ageRating(movie.getAgeRating() != null ? movie.getAgeRating().name() : null)
+                .posterUrl(movie.getPosterUrl())
+                .imageUrl(movie.getPosterUrl())
+                .active(movie.isActive())
+                .language(movie.getLanguage())
+                .schedule(movie.getSchedule())
+                .createdAt(movie.getCreatedAt())
+                .format(movie.getFormat())
+                .build();
+    }
+
+    private String saveImage(MultipartFile image) {
+        if (image == null || image.isEmpty()) {
+            return null;
+        }
+        try {
+            String fileName = System.currentTimeMillis() + "_" + image.getOriginalFilename();
+            Path path = Paths.get("uploads/movies/" + fileName);
+            Files.createDirectories(path.getParent());
+            Files.write(path, image.getBytes());
+            return "/uploads/movies/" + fileName;
+        } catch (IOException e) {
+            throw new RuntimeException("Error saving image", e);
+        }
+    }
+}

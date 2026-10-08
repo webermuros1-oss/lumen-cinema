@@ -1,0 +1,59 @@
+package com.cine.demo.mapper;
+
+import com.cine.demo.dto.response.PurchaseResponseDTO;
+import com.cine.demo.dto.response.PurchaseScreeningSummaryDTO;
+import com.cine.demo.dto.response.TicketResponseDTO;
+import com.cine.demo.model.Purchase;
+import com.cine.demo.model.Ticket;
+import org.springframework.stereotype.Component;
+import java.util.List;
+
+@Component
+public class PurchaseMapper {
+
+    public PurchaseResponseDTO toResponseDto(Purchase purchase) {
+        List<TicketResponseDTO> ticketDtos = purchase.getTickets().stream()
+                .map(this::toTicketResponseDto)
+                .toList();
+
+        var s = purchase.getScreening();
+        var screeningSummary = new PurchaseScreeningSummaryDTO(
+                s.getId(),
+                new PurchaseScreeningSummaryDTO.MovieSummary(s.getMovie().getTitle()),
+                new PurchaseScreeningSummaryDTO.TheaterSummary(s.getTheater().getId(), s.getTheater().getName(), s.getTheater().getCapacity()),
+                s.getStartTime()
+        );
+
+        return PurchaseResponseDTO.builder()
+                .id(purchase.getId())
+                .userId(purchase.getUser() != null ? purchase.getUser().getId() : null)
+                .userName(purchase.getUser() != null ? purchase.getUser().getName() : null)
+                .screeningId(s.getId())
+                .movieTitle(s.getMovie().getTitle())
+                .theaterName(s.getTheater().getName())
+                .startTime(s.getStartTime())
+                .tickets(ticketDtos)
+                .totalAmount(purchase.getTotalAmount())
+                .discountApplied(purchase.isDiscountApplied())
+                .discountAmount(purchase.getDiscountAmount())
+                .status(purchase.getStatus())
+                .paymentMethod(purchase.getPaymentMethod())
+                .paidAt(purchase.getPaidAt())
+                .createdAt(purchase.getCreatedAt())
+                .screening(screeningSummary)
+                .build();
+    }
+
+    public TicketResponseDTO toTicketResponseDto(Ticket ticket) {
+        return TicketResponseDTO.builder()
+                .id(ticket.getId())
+                .purchaseId(ticket.getPurchase().getId())
+                .seatId(ticket.getSeat().getId())
+                .row(ticket.getSeat().getRow())
+                .number(ticket.getSeat().getNumber())
+                .seatType(ticket.getSeat().getType().name())
+                .ticketType(ticket.getTicketType())
+                .unitPrice(ticket.getUnitPrice())
+                .build();
+    }
+}

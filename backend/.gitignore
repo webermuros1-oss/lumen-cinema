@@ -1,0 +1,45 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Credentials ###
+# application.properties SI se versiona: solo contiene referencias ${VAR},
+# ningun secreto literal. Es el contrato de configuracion del despliegue.
+# Lo que nunca se versiona es el fichero con los valores reales de tu
+# maquina, que genera setup-local.ps1:
+/src/main/resources/application-local.properties
+*.env
+
+### Claude Code ###
+.claude/
+hs_err_pid*.log

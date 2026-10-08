@@ -1,0 +1,32 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+FrontCine/
+node_modules
+dist
+dist-ssr
+*.local
+
+# Vitest coverage reports
+coverage/
+
+# Lighthouse audit reports (large HTML/JSON — keep only AUDIT-REPORT.md)
+lighthouse/*.html
+lighthouse/*.json
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -1,0 +1,505 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Search, Users, GraduationCap, Star, UserCheck, Plus, Edit2, Trash2 } from 'lucide-react';
+import PageHeader from '../../components/shared/PageHeader';
+import DataTable from '../../components/shared/DataTable';
+import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
+import Modal, { ConfirmModal } from '../../components/ui/Modal';
+import KPICard from '../../components/shared/KPICard';
+import { useApp } from '../../contexts/AppContext';
+import { useLanguage } from '../../i18n/LanguageContext';
+import { clientsService } from '../../services/clientsService';
+import styles from './ClientsPage.module.css';
+
+const STATUS_COLOR = { ACTIVE: 'green', INACTIVE: 'default', SUSPENDED: 'red' };
+
+const FIDELITY_THRESHOLD = 10;
+const EMPTY_FORM = {
+  name: '', lastName: '', username: '', email: '', password: '',
+  dateOfBirth: '', student: false, fidelityMember: false, visits: 0,
+};
+
+function initials(name = '') {
+  return name.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase() || '?';
+}
+
+function normalizeClient(apiRes, formData = {}) {
+  return {
+    ...apiRes,
+    id:           apiRes?.id ?? apiRes?.userId ?? apiRes?.clientId ?? ('CLI-' + Date.now()),
+    name:         apiRes?.name ?? formData.name ?? apiRes?.username ?? '-',
+    lastName:     apiRes?.lastName ?? formData.lastName ?? '',
+    email:        apiRes?.email ?? formData.email ?? '-',
+    username:     apiRes?.username ?? formData.username ?? '',
+    student:      apiRes?.student ?? apiRes?.isStudent ?? formData.student ?? false,
+    status:       apiRes?.status ?? 'ACTIVE',
+    userType:     apiRes?.userType ?? 'ADULT',
+    birthDate:    apiRes?.birthDate ?? apiRes?.dateOfBirth ?? '',
+    visitsPerYear: apiRes?.annualVisits ?? apiRes?.visitsPerYear ?? 0,
+  };
+}
+
+export default function ClientsPage() {
+  const [query, setQuery]         = useState('');
+  const [results, setResults]     = useState([]);
+  const [searched, setSearched]   = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const [detail, setDetail]       = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [modal, setModal]         = useState(null);
+  const [editing, setEditing]     = useState(null);
+  const [form, setForm]           = useState(EMPTY_FORM);
+  const [saving, setSaving]       = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const debounceRef = useRef(null);
+  const { toast } = useApp();
+  const { t } = useLanguage();
+
+  const STATUS_LABEL = {
+    ACTIVE:    t('clients.status.ACTIVE'),
+    INACTIVE:  t('clients.status.INACTIVE'),
+    SUSPENDED: t('clients.status.SUSPENDED'),
+  };
+
+  const isRealClient = (c) => {
+    const name  = (c.name ?? c.firstName ?? '').trim().toLowerCase();
+    const email = (c.email ?? '').toLowerCase();
+    return name !== 'guest' && name !== '' && !email.includes('anonimo@');
+  };
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await clientsService.getAll();
+      const raw  = Array.isArray(data) ? data : (data?.content ?? []);
+      setResults(raw.map(c => normalizeClient(c)).filter(isRealClient));
+      setSearched(true);
+    } catch {
+      toast('Error al cargar clientes.', 'error');
+    }
+    setLoading(false);
+  }, [toast]);
+
+  const runSearch = useCallback(async (q) => {
+    if (!q.trim()) { loadAll(); return; }
+    setLoading(true);
+    try {
+      const data = await clientsService.search(q);
+      const raw  = Array.isArray(data) ? data : (data?.content ?? []);
+      setResults(raw.map(c => normalizeClient(c)).filter(isRealClient));
+      setSearched(true);
+    } catch {
+      toast('Error al buscar clientes.', 'error');
+      setResults([]);
+    }
+    setLoading(false);
+  }, [loadAll, toast]);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    if (!query.trim()) return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => runSearch(query), 350);
+    return () => clearTimeout(debounceRef.current);
+  }, [query, runSearch]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setModal('form');
+  };
+
+  const openEdit = (row) => {
+    setEditing(row);
+    const visits = Number(row.annualVisits ?? row.visitsPerYear ?? 0);
+    setForm({
+      name:          row.name ?? '',
+      lastName:      row.lastName ?? '',
+      username:      row.username ?? '',
+      email:         row.email ?? '',
+      password:      '',
+      dateOfBirth:   row.dateOfBirth ?? row.birthDate ?? '',
+      student:       !!(row.student || row.isStudent),
+      fidelityMember: visits > FIDELITY_THRESHOLD || !!(row.discountActive || row.fidelityDiscountEligible),
+      visits,
+    });
+    setModal('form');
+  };
+
+  const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  const handleSave = async () => {
+    if (!form.email.trim()) { toast('El email es obligatorio.', 'error'); return; }
+    if (!editing && !form.password.trim()) { toast('La contraseña es obligatoria.', 'error'); return; }
+    if (!form.name.trim()) { toast('El nombre es obligatorio.', 'error'); return; }
+    setSaving(true);
+    try {
+      if (editing) {
+        const payload = {
+          name:                    form.name,
+          lastName:                form.lastName || undefined,
+          email:                   form.email,
+          birthDate:               form.dateOfBirth || null,
+          student:                 form.student,
+          discountActive:           form.fidelityMember,
+        };
+        if (form.password.trim()) payload.password = form.password;
+        const updated = await clientsService.update(editing.id, payload).catch(() => null);
+        const merged  = updated ?? { ...editing, ...payload };
+        setResults(prev => prev.map(c => c.id === editing.id ? merged : c));
+        if (detail?.id === editing.id) setDetail(merged);
+        toast(t('clients.modalCreate') + ' ✓', 'success');
+      } else {
+        const payload = {
+          name:                    form.name,
+          lastName:                form.lastName || '',
+          email:                   form.email,
+          password:                form.password,
+          birthDate:               form.dateOfBirth || null,
+          student:                 form.student,
+          discountActive:           form.fidelityMember,
+          role:                    'CLIENT',
+        };
+        const raw     = await clientsService.create(payload);
+        const created = normalizeClient(raw, payload);
+        setResults(prev => [...prev, created]);
+        setSearched(true);
+        toast(t('clients.createClient') + ' ✓', 'success');
+      }
+    } catch (err) {
+      if (err?.status === 409) {
+        toast('Este email o usuario ya está registrado.', 'error');
+      } else if (err?.status === 400) {
+        toast('Datos incorrectos. Revisa los campos e inténtalo de nuevo.', 'error');
+      } else {
+        toast('Error al guardar el cliente.', 'error');
+      }
+    }
+    setSaving(false);
+    setModal(null);
+  };
+
+  const handleDelete = async () => {
+    try {
+      await clientsService.remove(deleteTarget.id);
+      setResults(prev => prev.filter(c => c.id !== deleteTarget.id));
+      if (detail?.id === deleteTarget.id) setDetail(null);
+      toast(t('clients.deleteTitle') + ' ✓', 'warning');
+    } catch {
+      toast('Error al eliminar el cliente.', 'error');
+    }
+    setDeleteTarget(null);
+  };
+
+  const openDetail = async (row) => {
+    setDetail(row);
+    setDetailLoading(true);
+    try {
+      const raw  = await clientsService.getById(row.id);
+      setDetail(raw ? normalizeClient(raw) : row);
+    } catch { /* keep row data */ }
+    setDetailLoading(false);
+  };
+
+  const students = results.filter(c => c.student || c.isStudent);
+  const fidelity = results.filter(c => c.fidelityDiscountEligible);
+  const active   = results.filter(c => (c.status ?? 'ACTIVE') === 'ACTIVE');
+
+  const USER_TYPE_LABEL = { ADULT: 'Adulto', STUDENT: 'Estudiante', SENIOR: 'Senior', CHILD: 'Niño' };
+  const USER_TYPE_COLOR = { ADULT: 'default', STUDENT: 'purple', SENIOR: 'cyan', CHILD: 'yellow' };
+
+  const columns = [
+    { key: 'id', label: t('clients.col.id'), width: 80, render: v =>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-3)' }}>{v}</span> },
+    { key: 'name', label: t('clients.col.name'), render: (v, row) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className={styles.detailAvatar} style={{ width: 28, height: 28, fontSize: 11 }}>
+          {initials(v ?? row.username)}
+        </div>
+        <div>
+          <div style={{ fontWeight: 500, fontSize: 12 }}>{v ?? row.username ?? '-'}</div>
+        </div>
+      </div>
+    )},
+    { key: 'lastName', label: 'Apellidos', render: (v) =>
+      <span style={{ fontSize: 12, color: 'var(--text-1)' }}>{v ?? '-'}</span>
+    },
+    { key: 'email', label: t('clients.col.email'), render: v =>
+      <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{v ?? '-'}</span> },
+    { key: 'userType', label: 'Tipo', width: 110, render: v => {
+      const ut = v ?? 'ADULT';
+      return <Badge variant={USER_TYPE_COLOR[ut] ?? 'default'}>{USER_TYPE_LABEL[ut] ?? ut}</Badge>;
+    }},
+    { key: 'birthDate', label: 'Nacimiento', width: 120, render: v =>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-3)' }}>{v ?? '-'}</span> },
+    { key: 'visitsPerYear', label: t('clients.col.visits'), width: 100, render: v =>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{v ?? '-'}</span> },
+    { key: 'discountActive', label: t('clients.col.loyalty'), width: 110, render: (v, row) => {
+      const isSocio = !!(v || row.fidelityDiscountEligible || row.fidelityMember);
+      return isSocio ? <Badge variant="accent" dot>{t('clients.loyal')}</Badge> : <Badge variant="default">{t('clients.loyalNo')}</Badge>;
+    }},
+    { key: 'status', label: t('clients.col.status'), width: 110, render: v => {
+      const s = v ?? 'ACTIVE';
+      return <Badge variant={STATUS_COLOR[s] ?? 'default'} dot>{STATUS_LABEL[s] ?? s}</Badge>;
+    }},
+  ];
+
+  const sortedResults = useMemo(() => {
+    return [...results].sort((a, b) => {
+      const la = (a.lastName ?? '').toLowerCase();
+      const lb = (b.lastName ?? '').toLowerCase();
+      return la.localeCompare(lb, 'es');
+    });
+  }, [results]);
+
+  return (
+    <div className={styles.page}>
+      <PageHeader
+        title={t('clients.title')}
+        subtitle={t('clients.subtitle')}
+        actions={<Button icon={Plus} onClick={openCreate}>{t('clients.createBtn')}</Button>}
+      />
+
+      <div className={styles.kpiRow}>
+        <KPICard label={t('clients.kpi.results')}  value={results.length}  icon={Users}         color="accent" />
+        <KPICard label={t('clients.kpi.active')}   value={active.length}   icon={UserCheck}     color="green" />
+        <KPICard label={t('clients.kpi.students')} value={students.length} icon={GraduationCap} color="purple" />
+        <KPICard label={t('clients.kpi.loyal')}    value={fidelity.length} icon={Star}          color="cyan" />
+      </div>
+
+      <div className={styles.searchBar}>
+        <div className={styles.searchWrap}>
+          <Search size={13} className={styles.searchIcon} />
+          <input
+            className={styles.searchInput}
+            placeholder={t('clients.search.placeholder')}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            autoFocus
+          />
+        </div>
+        {loading && <span className={styles.searchHint}>{t('clients.search.loading')}</span>}
+        {!loading && searched && (
+          <span className={styles.searchHint}>
+            {results.length === 0 ? t('clients.search.noResults') : t('clients.search.results', { count: results.length })}
+          </span>
+        )}
+        {!loading && !searched && (
+          <span className={styles.searchHint}>{t('clients.search.hint')}</span>
+        )}
+      </div>
+
+      {searched && (
+        <DataTable
+          columns={columns}
+          data={sortedResults}
+          searchKeys={['name', 'email', 'username']}
+          onRowClick={openDetail}
+          rowKey="id"
+          rowActions={(row) => (
+            <div style={{ display: 'flex', gap: 2 }}>
+              <Button variant="ghost" size="sm" icon={Edit2}  onClick={() => openEdit(row)}         title={t('common.edit')} />
+              <Button variant="ghost" size="sm" icon={Trash2} onClick={() => setDeleteTarget(row)}  title={t('common.delete')} />
+            </div>
+          )}
+        />
+      )}
+
+      {/* ── Form modal (create / edit) ── */}
+      <Modal
+        open={modal === 'form'}
+        onClose={() => setModal(null)}
+        title={editing ? t('clients.modalEditTitle', { name: editing.name ?? editing.email }) : t('clients.modalCreate')}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setModal(null)}>{t('common.cancel')}</Button>
+            <Button variant="primary" onClick={handleSave} disabled={saving}>
+              {editing ? t('common.saveChanges') : t('clients.createClient')}
+            </Button>
+          </div>
+        }
+      >
+        <div className={styles.formGrid}>
+          <div>
+            <label className={styles.formLabel}>{t('clients.form.fullName')}</label>
+            <input className={styles.formInput} value={form.name}
+              onChange={e => setField('name', e.target.value)} placeholder={t('clients.form.namePh')} />
+          </div>
+          <div>
+            <label className={styles.formLabel}>Apellidos</label>
+            <input className={styles.formInput} value={form.lastName}
+              onChange={e => setField('lastName', e.target.value)} placeholder="Apellidos" />
+          </div>
+          <div>
+            <label className={styles.formLabel}>{t('clients.form.username')}</label>
+            <input className={styles.formInput} value={form.username}
+              onChange={e => setField('username', e.target.value)} placeholder={t('clients.form.usernamePh')} />
+          </div>
+          <div>
+            <label className={styles.formLabel}>{t('clients.form.email')}</label>
+            <input className={styles.formInput} type="email" value={form.email}
+              onChange={e => setField('email', e.target.value)} placeholder={t('clients.form.emailPh')} />
+          </div>
+          <div>
+            <label className={styles.formLabel}>{editing ? t('clients.form.passwordEdit') : t('clients.form.password')}</label>
+            <input className={styles.formInput} type="password" value={form.password}
+              onChange={e => setField('password', e.target.value)} placeholder={editing ? '••••••••' : t('clients.form.passwordPh')} />
+          </div>
+          <div>
+            <label className={styles.formLabel}>{t('clients.form.dateOfBirth')}</label>
+            <input className={styles.formInput} type="date" value={form.dateOfBirth}
+              onChange={e => setField('dateOfBirth', e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 20 }}>
+            <input type="checkbox" id="student-check" checked={form.student}
+              onChange={e => setField('student', e.target.checked)}
+              style={{ width: 15, height: 15, accentColor: 'var(--accent)', cursor: 'pointer' }} />
+            <label htmlFor="student-check" style={{ fontSize: 12, color: 'var(--text-2)', cursor: 'pointer' }}>
+              {t('clients.form.student')}
+            </label>
+          </div>
+          <div style={{ paddingTop: 8 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              Membresía
+            </p>
+            <button
+              type="button"
+              onClick={() => setField('fidelityMember', !form.fidelityMember)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                padding: '10px 14px', borderRadius: 'var(--r-lg)', cursor: 'pointer',
+                border: form.fidelityMember ? '1.5px solid var(--accent)' : '1.5px solid var(--border-l)',
+                background: form.fidelityMember ? 'var(--accent-dim)' : 'var(--bg-3)',
+                transition: 'all 120ms',
+              }}
+            >
+              <Star size={16} style={{ color: form.fidelityMember ? 'var(--accent)' : 'var(--text-3)', flexShrink: 0 }} />
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: form.fidelityMember ? 'var(--accent)' : 'var(--text-1)' }}>
+                  {form.fidelityMember ? 'Socio activo' : 'No es socio'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
+                  {form.fidelityMember && editing && form.visits > FIDELITY_THRESHOLD
+                    ? `Automático · ${form.visits} visitas este año — 10% sobre total de entradas`
+                    : form.fidelityMember
+                    ? 'Activado manualmente · recibirá email de bienvenida al Club Lumen'
+                    : editing
+                    ? `${form.visits}/${FIDELITY_THRESHOLD} visitas este año — se activa automáticamente al superar ${FIDELITY_THRESHOLD}`
+                    : `Se activa automáticamente al superar ${FIDELITY_THRESHOLD} visitas este año`}
+                </div>
+              </div>
+              <div style={{
+                marginLeft: 'auto', width: 36, height: 20, borderRadius: 10, flexShrink: 0,
+                background: form.fidelityMember ? 'var(--accent)' : 'var(--border)',
+                position: 'relative', transition: 'background 120ms',
+              }}>
+                <div style={{
+                  position: 'absolute', top: 3, width: 14, height: 14, borderRadius: '50%',
+                  background: '#fff', transition: 'left 120ms',
+                  left: form.fidelityMember ? 19 : 3,
+                }} />
+              </div>
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Detail modal ── */}
+      <Modal
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        title={detailLoading ? t('clients.detail.loading') : `${t('clients.title').slice(0, -1)} — ${detail?.name ?? detail?.username ?? detail?.id}`}
+        size="sm"
+      >
+        {detail && !detailLoading && (() => {
+          const isSocio    = !!(detail.discountActive || detail.fidelityMember);
+          const hasDiscount = !!(detail.fidelityDiscountEligible || (detail.annualVisits ?? detail.visitsPerYear ?? 0) >= 10);
+          const visits     = detail.visitsPerYear ?? 0;
+          const status     = detail.status ?? 'ACTIVE';
+          return (
+            <div className={styles.detail}>
+              <div className={styles.detailHeader}>
+                <div className={styles.detailAvatar}>{initials(detail.name ?? detail.username)}</div>
+                <div>
+                  <div className={styles.detailName}>{detail.name ?? detail.username ?? '-'}</div>
+                  <div className={styles.detailEmail}>{detail.lastName ? `${detail.lastName} — ${detail.email ?? '-'}` : detail.email ?? '-'}</div>
+                </div>
+              </div>
+
+              {hasDiscount && (
+                <div className={styles.fidelityBanner}>
+                  <Star size={14} />
+                  ¡Descuento disponible! Próxima compra con −10% en todas las entradas
+                </div>
+              )}
+
+              <div className={styles.detailGrid}>
+                <div className={styles.detailCard}>
+                  <span className={styles.detailLbl}>{t('clients.detail.username')}</span>
+                  <span className={styles.detailVal}>{detail.username ?? '-'}</span>
+                </div>
+                <div className={styles.detailCard}>
+                  <span className={styles.detailLbl}>Apellidos</span>
+                  <span className={styles.detailVal}>{detail.lastName ?? '-'}</span>
+                </div>
+                <div className={styles.detailCard}>
+                  <span className={styles.detailLbl}>{t('clients.detail.status')}</span>
+                  <Badge variant={STATUS_COLOR[status] ?? 'default'} dot>{STATUS_LABEL[status] ?? status}</Badge>
+                </div>
+                <div className={styles.detailCard}>
+                  <span className={styles.detailLbl}>Tipo usuario</span>
+                  <span className={styles.detailVal}>
+                    <Badge variant={USER_TYPE_COLOR[detail.userType] ?? 'default'}>{USER_TYPE_LABEL[detail.userType] ?? detail.userType ?? '-'}</Badge>
+                  </span>
+                </div>
+                <div className={styles.detailCard}>
+                  <span className={styles.detailLbl}>{t('clients.detail.visits')}</span>
+                  <span className={styles.detailVal}>{visits}/10</span>
+                </div>
+                <div className={styles.detailCard}>
+                  <span className={styles.detailLbl}>{t('clients.detail.loyalty')}</span>
+                  <span className={styles.detailVal}>{isSocio ? t('clients.loyalYes') : t('clients.loyalNo')}</span>
+                </div>
+                <div className={styles.detailCard}>
+                  <span className={styles.detailLbl}>{t('clients.detail.dob')}</span>
+                  <span className={styles.detailVal} style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
+                    {detail.birthDate ?? detail.dateOfBirth ?? '-'}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 4 }}>
+                <Button variant="secondary" size="sm" icon={Edit2}
+                  onClick={() => { setDetail(null); openEdit(detail); }}>
+                  {t('common.edit')}
+                </Button>
+                <Button variant="danger" size="sm" icon={Trash2}
+                  onClick={() => { setDetail(null); setDeleteTarget(detail); }}>
+                  {t('common.delete')}
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
+        {detailLoading && (
+          <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+            {t('clients.detail.loadingData')}
+          </div>
+        )}
+      </Modal>
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title={t('clients.deleteTitle')}
+        danger
+        message={t('clients.deleteMsg', { name: deleteTarget?.name ?? deleteTarget?.email ?? '' })}
+        confirmLabel={t('clients.deleteConfirm')}
+      />
+    </div>
+  );
+}
