@@ -21,7 +21,7 @@ cambió y por qué, que es la parte interesante.
 | Autenticación | JWT (jjwt) con autorización por rol y por propiedad del recurso |
 | Pagos | Stripe (modo test) |
 | Otros | Cloudinary (imágenes) · OpenPDF + ZXing (entradas en PDF con QR) · Swagger |
-| Tests | JUnit 5 · Mockito · MockMvc (794) · Vitest + Testing Library (904) |
+| Tests | JUnit 5 · Mockito · MockMvc (807) · Vitest + Testing Library (904) |
 
 ---
 
@@ -147,8 +147,11 @@ anotaciones.
 Tres fallos encadenados: el endpoint público no existía (el filtro declaraba
 pública una ruta vacía), la tienda llamaba a uno que exigía token, y ese
 devolvía un DTO sin token cuando el frontend esperaba `{ token, user }`.
-Tampoco había pantalla de registro: el layout invitaba a registrarse y el rótulo
-no era un enlace.
+
+Sí había un formulario de alta incrustado en la página de butacas, para darse de
+alta en mitad de la compra, pero lo rompía la misma cadena. Lo que no existía era
+una pantalla de registro propia: el layout invitaba a registrarse y el rótulo no
+era ni un enlace, además de estar oculto por CSS en móviles.
 
 Había una consecuencia menos visible. El frontend enviaba `dateOfBirth` y el
 backend esperaba `birthDate`, así que la fecha de nacimiento se perdía — y una
@@ -225,9 +228,18 @@ regresión explícita por cada fallo descrito arriba.
 ## Tests
 
 ```bash
-cd backend  && ./mvnw test     # 794
+cd backend  && ./mvnw test     # 807
 cd frontend && npm test        # 904
 ```
+
+Cobertura del backend, sin exclusiones: **90,3 % de instrucciones y 74,1 % de
+ramas**. El informe se genera en `backend/target/site/jacoco/index.html`.
+
+Que ese informe exista tiene su propia historia: Surefire necesita `@{argLine}`
+para evaluar tarde la propiedad que JaCoCo define en ejecución, y sin eso el
+agente se configuraba pero no se acoplaba al proceso de test. Es decir, no había
+informe en absoluto — lo que encaja con que nadie notara que las exclusiones
+tapaban toda la lógica de negocio.
 
 ---
 
