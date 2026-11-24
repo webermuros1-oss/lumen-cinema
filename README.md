@@ -12,6 +12,22 @@ cambió y por qué, que es la parte interesante.
 
 ---
 
+## Capturas
+
+**Cuadro de mando** — ingresos, ocupación por sala y lo más vendido, para gerencia.
+
+![Cuadro de mando de la intranet](docs/capturas/dashboard.png)
+
+**Taquilla** — sesiones del día con su sala y aforo, para vender entradas en el mostrador.
+
+![Taquilla de la intranet](docs/capturas/taquilla.png)
+
+**Caja** — venta de comida, bebida y merchandising con atajos de teclado.
+
+![Caja de la intranet](docs/capturas/caja.png)
+
+---
+
 ## Stack
 
 | Capa | Tecnología |
