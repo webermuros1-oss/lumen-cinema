@@ -254,9 +254,6 @@ Por honestidad, lo que queda pendiente y por qué:
   es peor que no tenerlas.
 - **Verificación de email en el alta.** El correo de bienvenida se envía, pero
   la cuenta queda activa sin confirmar la dirección.
-- **Pasarela conectada en la interfaz.** El backend de pagos está completo y
-  probado, y existe el componente `StripePaymentModal`, pero ninguna página lo
-  monta todavía: el flujo de compra termina sin cobrar.
 - **Servicios grandes.** `ScreeningServiceImpl` y `PurchaseServiceImpl` acumulan
   demasiadas reglas y pedirían extraer clases de dominio (solapes de sala,
   política de asientos).
